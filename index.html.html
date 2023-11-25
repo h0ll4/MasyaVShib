@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Space Invaders</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: black;
+    }
+    #gameCanvas {
+      background-image: url('background.jpg');
+      background-size: cover;
+      display: block;
+      margin: auto;
+      border: 5px solid white; /* Aggiungi un bordo bianco intorno al canvas */
+    }
+    #menu {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      font-family: Arial, sans-serif;
+      color: white;
+      display: flex;
+      flex-direction: column;
+    }
+    #menu h1 {
+      font-size: 30px;
+      margin-bottom: 20px;
+    }
+    #menu button {
+      font-size: 20px;
+      padding: 10px 20px;
+      margin: 10px;
+      cursor: pointer;
+      border: none;
+      background-color: #333;
+      color: white;
+    }
+    #menu button:hover {
+      background-color: #555;
+    }
+    #leaderboard {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+    #leaderboard h2 {
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+    #leaderboard ol {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+    }
+    #leaderboard li {
+      margin-bottom: 5px;
+    }
+
+    /* Media query per dispositivi mobili */
+    @media (max-width: 600px) {
+      #gameCanvas {
+        width: 100%;
+        height: auto;
+      }
+      #menu {
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="menu">
+    <h1>Space Invaders</h1>
+    <button onclick="startGame()" id="startButton">Start Game</button>
+    <button style="display: none;" onclick="retryGame()" id="retryButton">Retry</button>
+  </div>
+  <canvas id="gameCanvas" width="600" height="400"></canvas>
+  <div id="leaderboard">
+    <h2>Leaderboard</h2>
+    <ol id="scores">
+      <!-- La classifica verrà generata dinamicamente qui -->
+    </ol>
+  </div>
+  <script>
+    let gameStarted = false;
+    let isMobile = false;
+    let moveLeft = false;
+    let moveRight = false;
+    let moveUp = false;
+    let moveDown = false;
+    let score = 0;
+    let enemySpeed = 2;
+    let enemySpawnInterval = 5000;
+    const MAX_SCORES = 5;
+    
+    function updateScore() {
+      score += 10;
+    }
+
+    function saveScore() {
+      let scores = JSON.parse(localStorage.getItem('spaceInvadersScores')) || [];
+      scores.push(score);
+      scores.sort((a, b) => b - a);
+      scores = scores.slice(0, MAX_SCORES);
+      localStorage.setItem('spaceInvadersScores', JSON.stringify(scores));
+    }
+
+    function showLeaderboard() {
+      const leaderboardElement = document.getElementById('scores');
+      leaderboardElement.innerHTML = '';
+      const scores = JSON.parse(localStorage.getItem('spaceInvadersScores')) || [];
+      scores.forEach((score, index) => {
+        const listItem = document.createElement('li');
+        listItem.textContent = `${index + 1}. ${score}`;
+        leaderboardElement.appendChild(listItem);
+      });
+    }
+
+    function startGame() {
+      document.getElementById('menu').style.display = 'none';
+      document.getElementById('startButton').style.display = 'none';
+      document.getElementById('retryButton').style.display = 'none';
+      gameStarted = true;
+      backgroundSound.loop = true;
+      backgroundSound.play();
+      gameLoop();
+      
+      if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+        isMobile = true;
+        document.addEventListener('touchstart', handleTouchStart, false);
+        document.addEventListener('touchmove', handleTouchMove, false);
+        document.addEventListener('touchend', handleTouchEnd, false);
+      } else {
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'ArrowLeft') {
+            moveLeft = true;
+          } else if (event.key === 'ArrowRight') {
+            moveRight = true;
+          } else if (event.key === 'ArrowUp') {
+            moveUp = true;
+          } else if (event.key === 'ArrowDown') {
+            moveDown = true;
+          } else if (event.key === ' ') {
+            shoot();
+          }
+        });
+
+        document.addEventListener('keyup', function (event) {
+          if (event.key === 'ArrowLeft') {
+            moveLeft = false;
+          } else if (event.key === 'ArrowRight') {
+            moveRight = false;
+          } else if (event.key === 'ArrowUp') {
+            moveUp = false;
+          } else if (event.key === 'ArrowDown') {
+            moveDown = false;
+          }
+        });
+      }
+    }
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const spaceshipImg = new Image();
+    spaceshipImg.src = 'spaceship.png';
+
+    const enemyImg = new Image();
+    enemyImg.src = 'enemy.png';
+
+    const bulletImg = new Image();
+    bulletImg.src = 'bullet.png';
+
+    const spaceship = {
+      x: canvas.width / 2 - 15,
+      y: canvas.height - 50,
+      width: 30,
+      height: 20,
+      speed: 5
+    };
+
+    const bullets = [];
+    const enemies = [];
+
+    const backgroundSound = new Audio('background_sound.ogg');
+    const gameOverSound = new Audio('game_over_sound.wav');
+
+    const shootSound = new Audio('shoot_sound.wav');
+
+    function createEnemy(x, y, speed) {
+      return {
+        x,
+        y,
+        width: 30,
+        height: 20,
+        speed
+      };
+    }
+
+    function drawSpaceship() {
+      ctx.drawImage(spaceshipImg, spaceship.x, spaceship.y, spaceship.width, spaceship.height);
+    }
+
+    function drawEnemies() {
+      for (const enemy of enemies) {
+        ctx.drawImage(enemyImg, enemy.x, enemy.y, enemy.width, enemy.height);
+      }
+    }
+
+    function drawBullets() {
+      for (const bullet of bullets) {
+        ctx.drawImage(bulletImg, bullet.x, bullet.y, 8, 8);
+      }
+    }
+
+    function moveSpaceship() {
+      if (!gameStarted) return;
+      
+      if (moveLeft) {
+        spaceship.x -= spaceship.speed;
+      }
+      if (moveRight) {
+        spaceship.x += spaceship.speed;
+      }
+      if (moveUp) {
+        spaceship.y -= spaceship.speed;
+      }
+      if (moveDown) {
+        spaceship.y += spaceship.speed;
+      }
+
+      if (spaceship.x < 0) {
+        spaceship.x = 0;
+      } else if (spaceship.x > canvas.width - spaceship.width) {
+        spaceship.x = canvas.width - spaceship.width;
+      }
+
+      if (spaceship.y < 0) {
+        spaceship.y = 0;
+      } else if (spaceship.y > canvas.height - spaceship.height) {
+        spaceship.y = canvas.height - spaceship.height;
+      }
+    }
+
+    function moveEnemies() {
+      for (const enemy of enemies) {
+        enemy.y += enemy.speed;
+        if (enemy.y > canvas.height || checkCollision(enemy)) {
+          endGame();
+        }
+      }
+    }
+
+    function shoot() {
+      const bulletX = spaceship.x + spaceship.width / 2;
+      bullets.push({ x: bulletX, y: spaceship.y });
+      shootSound.currentTime = 0;
+      shootSound.play();
+    }
+
+    function updateBullets() {
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].y -= 5;
+        if (bullets[i].y < 0) {
+          bullets.splice(i, 1);
+        }
+      }
+    }
+
+    function checkCollisions() {
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        for (let j = bullets.length - 1; j >= 0; j--) {
+          const bullet = bullets[j];
+          if (
+            bullet.x > enemy.x &&
+            bullet.x < enemy.x + enemy.width &&
+            bullet.y > enemy.y &&
+            bullet.y < enemy.y + enemy.height
+          ) {
+            enemies.splice(i, 1);
+            bullets.splice(j, 1);
+            updateScore();
+          }
+        }
+      }
+    }
+
+    function checkCollision(enemy) {
+      return (
+        spaceship.x + spaceship.width > enemy.x &&
+        spaceship.x < enemy.x + enemy.width &&
+        spaceship.y + spaceship.height > enemy.y &&
+        spaceship.y < enemy.y + enemy.height
+      );
+    }
+
+    function showScore() {
+      ctx.font = '24px Arial';
+      ctx.fillStyle = 'white';
+      ctx.fillText('Score: ' + score, 10, 30);
+    }
+
+    let touchStartX, touchStartY;
+    let touchMoveX, touchMoveY;
+
+    function handleTouchStart(event) {
+      if (!gameStarted) return;
+      
+      touchStartX = event.touches[0].clientX;
+      touchStartY = event.touches[0].clientY;
+    }
+
+    function handleTouchMove(event) {
+      if (!gameStarted) return;
+      
+      touchMoveX = event.touches[0].clientX;
+      touchMoveY = event.touches[0].clientY;
+
+      const deltaX = touchMoveX - touchStartX;
+      const deltaY = touchMoveY - touchStartY;
+
+      moveSpaceship(spaceship.x + deltaX, spaceship.y + deltaY);
+
+      touchStartX = touchMoveX;
+      touchStartY = touchMoveY;
+    }
+
+    function handleTouchEnd() {
+      if (!gameStarted) return;
+      
+      if (isMobile) {
+        clearInterval(shootingInterval);
+        shootingInterval = setInterval(shoot, 300);
+      }
+    }
+
+    Promise.all([spaceshipImg, enemyImg, bulletImg].map(image => {
+      return new Promise(resolve => {
+        image.onload = resolve;
+      });
+    })).then(() => {
+      spawnEnemy();
+      setInterval(spawnEnemy, enemySpawnInterval);
+    });
+
+    function spawnEnemy() {
+      const enemyX = Math.random() * (canvas.width - 30);
+      const enemyY = -30;
+      const enemySpeed = Math.random() * (4 - 1) + 1;
+      enemies.push(createEnemy(enemyX, enemyY, enemySpeed));
+    }
+
+    function endGame() {
+      gameStarted = false;
+      saveScore();
+      showLeaderboard();
+      document.getElementById('menu').style.display = 'flex';
+      document.getElementById('retryButton').style.display = 'block';
+      document.getElementById('menu').style.flexDirection = 'column';
+      backgroundSound.pause();
+      backgroundSound.currentTime = 0;
+      gameOverSound.play();
+    }
+
+    function retryGame() {
+      document.getElementById('menu').style.display = 'none';
+      document.getElementById('retryButton').style.display = 'none';
+      score = 0;
+      spaceship.x = canvas.width / 2 - 15;
+      spaceship.y = canvas.height - 50;
+      bullets.length = 0;
+      enemies.length = 0;
+      gameStarted = true;
+      backgroundSound.loop = true;
+      backgroundSound.play();
+      gameLoop();
+    }
+
+    function gameLoop() {
+      if (!gameStarted) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      moveSpaceship();
+      moveEnemies();
+      drawEnemies();
+
+      updateBullets();
+      drawBullets();
+
+      drawSpaceship();
+
+      checkCollisions();
+      showScore();
+
+      requestAnimationFrame(gameLoop);
+    }
+  </script>
+</body>
+</html>
